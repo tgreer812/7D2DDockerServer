@@ -48,79 +48,76 @@ This project provides a Dockerized setup for running a 7 Days to Die server in t
 
 **Prerequisites:**
 
+*   **Azure Account:** You must have an active Azure account and subscription. This guide assumes you have the necessary permissions to create resources like Container Registries, Container Instances, and Storage Accounts.
+*   **Azure Container Registry (ACR):** You need to have already created an Azure Container Registry instance. The deployment scripts require the name and credentials of your existing ACR. https://learn.microsoft.com/en-us/azure/container-registry/container-registry-get-started-portal?tabs=azure-cli
 *   **Azure CLI:** Ensure you have the [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli) installed and configured.
 *   **Azure PowerShell:** The deployment scripts require Azure PowerShell modules. Install them by running the following command in an **Administrator** PowerShell terminal:
     ```powershell
     Install-Module -Name Az -Scope CurrentUser -Repository PSGallery -Force
     ```
     *(You might need to accept prompts to trust the repository during installation.)*
-*   **Bicep CLI:** The `deploy-bicep.ps1` script uses Bicep to deploy Azure resources. Install it by running the provided script (you may need to adjust PowerShell execution policy):
+*   **Bicep CLI:** The `deploy-bicep.ps1` script uses Bicep. The initial setup script will handle installing this.
+
+**Initial Setup (Run Once):**
+
+1.  **Run the setup script:** Open PowerShell, navigate to the repository root, and run:
     ```powershell
-    ./deployment/install-bicep.ps1
+    ./deployment/initial_setup.ps1
     ```
-    *(You may need to close and reopen your terminal after running the script for the PATH changes to take effect.)*
+    This script will:
+    *   Copy `config/config.json.example` to `config/config.json`.
+    *   Copy `configs/serverconfig.default.xml` to `configs/serverconfig.xml`.
+    *   Attempt to install the Bicep CLI using `./deployment/install-bicep.ps1`.
 
-To deploy the server on Azure, follow these steps:
+2.  **Edit Configuration Files:**
+    *   **Edit `config/config.json`:** Fill in all required values:
+        - `acrName`: Your Azure Container Registry name (e.g., `myregistry`). This is also used as the username for pulling the image.
+        - `acrLoginServer`: Your ACR login server (e.g., `myregistry.azurecr.io`)
+        - `imageName`: The name of your Docker image (e.g., `7dtd-server`)
+        - `tag`: The image tag (e.g., `latest`)
+        - `containerGroupName`: Name for the Azure Container Instance group
+        - `fileShareName`: Name for the Azure File Share
+        - `serverName`: Your 7 Days to Die server name (This should match the `ServerName` property in `serverconfig.xml`)
+        - `serverPassword`: Your 7 Days to Die server password (This should match the `ServerPassword` property in `serverconfig.xml`)
+        - `resourceGroup`: The Azure resource group to deploy into
+        - `location`: The Azure region where the resource group and resources should be created (e.g., `eastus`, `westus2`).
+        - `acrPassword`: Your ACR password (see step 3).
+    *   **Edit `configs/serverconfig.xml`:** Set your desired server name, password, game settings, etc. This is the file that will be baked into your Docker image.
 
-1. **Configure Deployment Settings**
-   - Copy `config/config.json.example` to `config/config.json`:
-     ```bash
-     cp config/config.json.example config/config.json
-     ```
-   - Edit `config/config.json` and fill in all required values:
-     - `acrName`: Your Azure Container Registry name (e.g., `myregistry`). This is also used as the username for pulling the image.
-     - `acrLoginServer`: Your ACR login server (e.g., `myregistry.azurecr.io`)
-     - `imageName`: The name of your Docker image (e.g., `7dtd-server`)
-     - `tag`: The image tag (e.g., `latest`)
-     - `containerGroupName`: Name for the Azure Container Instance group
-     - `fileShareName`: Name for the Azure File Share
-     - `serverName`: Your 7 Days to Die server name
-     - `serverPassword`: Your 7 Days to Die server password
-     - `resourceGroup`: The Azure resource group to deploy into
-     - `acrPassword`: Your ACR password (see below)
+3.  **Get your ACR password**
+    - Run the following Azure CLI command:
+      ```powershell
+      az acr credential show --name <your-acr-name> --query "passwords[0].value" -o tsv
+      ```
+    - Copy the output and paste it into the `acrPassword` field in your `config.json`.
 
-2. **Get your ACR password**
-   - Run the following Azure CLI command:
-     ```powershell
-     az acr credential show --name <your-acr-name> --query "passwords[0].value" -o tsv
-     ```
-   - Copy the output and paste it into the `acrPassword` field in your `config.json`.
+**Deployment Steps (After Initial Setup):**
 
-3. **Build and Push the Docker Image in Azure (No Local Docker Needed!)**
-   - Use the provided script to build and push your image using Azure Container Registry Tasks:
-     ```powershell
-     ./deployment/push-to-acr.ps1
-     ```
-   - This will queue a cloud build using your Dockerfile and push the image to your ACR.
+1.  **Build and Push the Docker Image in Azure (No Local Docker Needed!)**
+    - Use the provided script to build and push your image using Azure Container Registry Tasks:
+      ```powershell
+      ./deployment/push-to-acr.ps1
+      ```
+    - This will queue a cloud build using your Dockerfile and push the image to your ACR.
 
-4. **Deploy to Azure**
-   - Run the deployment script. You have an option for the initial deployment:
-     - **First Time Deployment (Generate Default Config):** Run the script with `-CopyConfigOnStart:$false`. This will prevent the script from copying your local `configs/serverconfig.xml` into the running container's persistent storage. The server will start and generate its own default `serverconfig.xml` in the `/data` volume (viewable via the Azure File Share).
-       ```powershell
-       ./deployment/deploy-bicep.ps1 -CopyConfigOnStart:$false
-       ```
-     - **Subsequent Deployments (Use Your Custom Config):** After you've retrieved the generated default config (if needed), updated your local `configs/serverconfig.xml`, and rebuilt the image using `push-to-acr.ps1`, run the deployment script *without* the `-CopyConfigOnStart:$false` flag (or explicitly with `$true`). This will copy your custom config from the image into the persistent storage, ensuring your settings are used.
-       ```powershell
-       ./deployment/deploy-bicep.ps1
-       # OR
-       ./deployment/deploy-bicep.ps1 -CopyConfigOnStart:$true
-       ```
-   - The script provisions all required Azure resources and deploys your container using the values from `config/config.json` and the chosen config copy behavior.
-   - **Disclaimer:** The very first time the container starts after deployment, it needs to download the 7 Days to Die server files using SteamCMD. This can take a significant amount of time (potentially 15-30 minutes or more) depending on Azure's network speed and the performance of the underlying file share, especially during the "preallocating" phase. You can monitor the progress by `exec`-ing into the container and tailing the `/data/steamcmd_update.log` file. Subsequent starts should be much faster as it only checks for updates.
+2.  **Deploy to Azure**
+    - Run the deployment script:
+      ```powershell
+      ./deployment/deploy-bicep.ps1
+      ```
+    - The script provisions all required Azure resources and deploys your container using the values from `config/config.json`.
+    - The `start-server.sh` script inside the container will automatically copy the `configs/serverconfig.xml` from your repository (which was baked into the image) to the persistent `/data` volume (`serverconfig.xml` on the Azure File Share) when the container starts.
+    - **Disclaimer:** The very first time the container starts after deployment, it needs to check for server updates using SteamCMD. This can take a few minutes depending on Azure's network speed and the performance of the underlying file share. You can monitor the progress by `exec`-ing into the container and tailing the `/data/steamcmd_update.log` file. Subsequent starts should be much faster as it only downloads changes.
 
-**Workflow for Initial Setup & Custom Config:**
+**Workflow Summary:**
 
-1.  Run `./deployment/push-to-acr.ps1` to build the initial image (the included `configs/serverconfig.xml` doesn't matter much yet).
-2.  Run `./deployment/deploy-bicep.ps1 -CopyConfigOnStart:$false`.
-3.  Wait for the container instance to start. Access the Azure File Share created during deployment (you can find it in the resource group via the Azure Portal).
-4.  Navigate to the root of the file share (which corresponds to `/data` inside the container). You should find the `serverconfig.xml` generated by the server.
-5.  Copy this generated file to your local machine, placing it in `configs/serverconfig.xml` in your repository.
-6.  Modify this local `configs/serverconfig.xml` with your desired server name, password, game settings, etc.
-7.  Commit your changes.
-8.  Run `./deployment/push-to-acr.ps1` again to build a new image containing your *customized* config file.
-9.  Run `./deployment/deploy-bicep.ps1` (this time *without* `-CopyConfigOnStart:$false`). The container will now start and the `start-server.sh` script will copy your custom config from the image into `/data/serverconfig.xml`, ensuring your settings are applied.
+1.  Run `./deployment/initial_setup.ps1` **once**. 
+2.  Edit `config/config.json` and `configs/serverconfig.xml` with your settings.
+3.  Get ACR password and add it to `config.json`.
+4.  Run `./deployment/push-to-acr.ps1` to build/push the image.
+5.  Run `./deployment/deploy-bicep.ps1` to deploy to Azure.
 
-**Note:** Never commit your real `config.json` to version control. Use `config.json.example` as a template for sharing configuration requirements.
+**Note:** Never commit your real `config.json` or `serverconfig.xml` to version control. Use the `.example` / `.default` files as templates.
 
 ## Known Issues
 
@@ -129,7 +126,7 @@ To deploy the server on Azure, follow these steps:
 
 ## Contributing
 
-We are not taking contributions at this time.
+Contributions not accepted at this time.
 
 ## License
 

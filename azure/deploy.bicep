@@ -11,7 +11,25 @@ param acrUsername string
 @secure()
 param serverPassword string
 param serverName string
-param copyConfigOnStart bool = true // New parameter to control config copy
+
+// Optional: Specify the Principal ID (Object ID) of a user, group, or service principal
+// to grant elevated SMB share access (Storage File Data SMB Share Elevated Contributor)
+// for managing permissions directly on the file share. Leave empty to skip role assignment.
+param adminPrincipalId string = ''
+
+// Optional: Specify the type of the principal ID provided above.
+// Required if adminPrincipalId is set. Defaults to 'User'.
+@allowed([
+  'User'
+  'Group'
+  'ServicePrincipal'
+  'ForeignGroup'
+  'Device'
+])
+param adminPrincipalType string = 'User'
+
+// Role Definition ID for 'Storage File Data SMB Share Elevated Contributor'
+var storageFileDataSmbShareElevatedContributorRoleId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'a7264617-510b-434b-a828-9731dc254ea7')
 
 resource storageAccount 'Microsoft.Storage/storageAccounts@2022-09-01' = {
   name: storageAccountName
@@ -36,10 +54,47 @@ resource fileShare 'Microsoft.Storage/storageAccounts/fileServices/shares@2022-0
   }
 }
 
-resource containerGroup 'Microsoft.ContainerInstance/containerGroups@2023-05-01' = { // Updated API version
+// Assign the Elevated Contributor role to the specified admin principal ID if provided
+resource adminRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(adminPrincipalId)) {
+  name: guid(resourceGroup().id, fileShare.id, adminPrincipalId, storageFileDataSmbShareElevatedContributorRoleId) // Unique name for the role assignment
+  scope: fileShare // Scope the assignment to the file share
+  properties: {
+    roleDefinitionId: storageFileDataSmbShareElevatedContributorRoleId
+    principalId: adminPrincipalId
+    principalType: adminPrincipalType
+  }
+}
+
+resource containerGroup 'Microsoft.ContainerInstance/containerGroups@2023-05-01' = {
   name: containerGroupName
   location: location
   properties: {
+    ipAddress: {
+      type: 'Public'
+      ports: [
+        {
+          protocol: 'Udp'
+          port: 26900
+        }
+        {
+          protocol: 'Tcp'
+          port: 26900
+        }
+        {
+          protocol: 'Udp'
+          port: 26901
+        }
+        {
+          protocol: 'Udp'
+          port: 26902
+        }
+        {
+          protocol: 'Udp'
+          port: 26903
+        }
+      ]
+      dnsNameLabel: 'dns-${toLower(containerGroupName)}'
+    }
     containers: [
       {
         name: containerImageName
@@ -47,38 +102,30 @@ resource containerGroup 'Microsoft.ContainerInstance/containerGroups@2023-05-01'
           image: '${containerRegistryName}.azurecr.io/${containerImageName}:${containerImageTag}'
           resources: {
             requests: {
-              cpu: 2 // Increased for better performance
-              memoryInGB: 4 // Increased for better performance
+              cpu: 2
+              memoryInGB: 4
             }
           }
           ports: [
             {
+              protocol: 'Udp'
               port: 26900
-              protocol: 'UDP'
             }
             {
+              protocol: 'Tcp'
+              port: 26900
+            }
+            {
+              protocol: 'Udp'
               port: 26901
-              protocol: 'UDP'
             }
             {
+              protocol: 'Udp'
               port: 26902
-              protocol: 'UDP'
             }
             {
+              protocol: 'Udp'
               port: 26903
-              protocol: 'UDP'
-            }
-            {
-              port: 8080 // Default web interface port
-              protocol: 'TCP'
-            }
-            {
-              port: 8081 // Telnet port
-              protocol: 'TCP'
-            }
-            {
-              port: 8082 // Control Panel port
-              protocol: 'TCP'
             }
           ]
           environmentVariables: [
@@ -88,63 +135,24 @@ resource containerGroup 'Microsoft.ContainerInstance/containerGroups@2023-05-01'
             }
             {
               name: 'SERVERPASSWORD'
-              secureValue: serverPassword // Use secureValue for password
-            }
-            {
-              name: 'COPY_CONFIG_ON_START'
-              value: string(copyConfigOnStart) // Pass the parameter value
+              secureValue: serverPassword
             }
           ]
           volumeMounts: [
             {
               name: '7dtddata'
-              mountPath: '/data' // Mount point for persistent data
+              mountPath: '/data'
             }
           ]
         }
       }
     ]
     osType: 'Linux'
-    ipAddress: {
-      type: 'Public'
-      ip: ''
-      ports: [
-        {
-          protocol: 'UDP'
-          port: 26900
-        }
-        {
-          protocol: 'UDP'
-          port: 26901
-        }
-        {
-          protocol: 'UDP'
-          port: 26902
-        }
-        {
-          protocol: 'UDP'
-          port: 26903
-        }
-        {
-          protocol: 'TCP'
-          port: 8080 // Expose web interface port
-        }
-        {
-          protocol: 'TCP'
-          port: 8081 // Expose Telnet port
-        }
-        {
-          protocol: 'TCP'
-          port: 8082 // Expose Control Panel port
-        }
-      ]
-      dnsNameLabel: containerGroupName // Optional: Add a DNS name label
-    }
     imageRegistryCredentials: [
       {
         server: '${containerRegistryName}.azurecr.io'
         username: acrUsername
-        password: acrPassword // Use secure parameter
+        password: acrPassword
       }
     ]
     volumes: [
@@ -157,7 +165,7 @@ resource containerGroup 'Microsoft.ContainerInstance/containerGroups@2023-05-01'
         }
       }
     ]
-    restartPolicy: 'OnFailure' // Optional: Set restart policy
+    restartPolicy: 'OnFailure'
   }
 }
 

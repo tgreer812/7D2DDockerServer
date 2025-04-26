@@ -60,7 +60,7 @@ This XML file does not appear to have any style information associated with it. 
 <!--  Folder and file locations  -->
 <property name="AdminFileName" value="serveradmin.xml"/>
 <!--  Server admin file name. Path relative to UserDataFolder/Saves  -->
-<!--  <property name="UserDataFolder"				value="absolute path" />  -->
+<property name="UserDataFolder"				value="/data" />
 <!--  Use this to override where the server stores all user data, including RWG generated worlds and saves. Do not forget to uncomment the entry!  -->
 <!--  Other technical settings  -->
 <property name="ServerAllowCrossplay" value="false"/>

@@ -8,5 +8,7 @@
   "serverName": "<your-7dtd-server-name>",
   "serverPassword": "<your-7dtd-server-password>",
   "resourceGroup": "<your-resource-group>",
-  "acrPassword": "<your-acr-password>"
+  "location": "<your-location> e.g eastus",
+  "acrPassword": "<your-acr-password>",
+  "adminPrincipalId": "<your-admin-principal-id>"
 }

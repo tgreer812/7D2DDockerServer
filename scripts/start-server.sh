@@ -2,15 +2,16 @@
 
 # Define paths
 STEAMCMD_DIR="/opt/steamcmd"
-INSTALL_DIR="/data" # Mount point for persistent Azure File Share
-CONFIG_SOURCE_PATH="/7dtd/serverconfig.xml" # Config copied from image
-CONFIG_DEST_PATH="$INSTALL_DIR/serverconfig.xml"
+INSTALL_DIR="/7dtd" # Installation directory within the image
+DATA_DIR="/data"    # Mount point for persistent Azure File Share
+CONFIG_SOURCE_PATH="$INSTALL_DIR/myserverconfig.xml" # Config baked into image
+CONFIG_DEST_PATH="$DATA_DIR/serverconfig.xml"      # Config on persistent volume
 SERVER_EXEC="$INSTALL_DIR/7DaysToDieServer.x86_64"
-STEAMCMD_LOG_FILE="$INSTALL_DIR/steamcmd_update.log" # Log file for steamcmd output
-LOG_DIR="$INSTALL_DIR/logs" # Directory for server logs
+STEAMCMD_LOG_FILE="$DATA_DIR/steamcmd_update.log" # Log file for steamcmd output
+LOG_DIR="$DATA_DIR/logs" # Directory for server logs
 
-# Ensure the install directory exists (it should be mounted, but check anyway)
-mkdir -p "$INSTALL_DIR"
+# Ensure the data directory exists (it should be mounted, but check anyway)
+mkdir -p "$DATA_DIR"
 # Ensure the log directory exists
 mkdir -p "$LOG_DIR"
 # Clear or create the steamcmd log file on start
@@ -18,38 +19,22 @@ mkdir -p "$LOG_DIR"
 
 echo "Redirecting SteamCMD output to $STEAMCMD_LOG_FILE"
 
-# Check if server executable exists in the persistent volume
-if [ ! -f "$SERVER_EXEC" ]; then
-  echo "7 Days to Die server not found in $INSTALL_DIR. Installing for the first time..."
-  # Redirect stdout and stderr to the log file
-  $STEAMCMD_DIR/steamcmd.sh +login anonymous +force_install_dir "$INSTALL_DIR" +app_update 294420 validate +quit >> "$STEAMCMD_LOG_FILE" 2>&1
-else
-  echo "7 Days to Die server found in $INSTALL_DIR. Checking for updates..."
-  # Optionally update on every start - SteamCMD should only download changes
-  # Redirect stdout and stderr to the log file
-  $STEAMCMD_DIR/steamcmd.sh +login anonymous +force_install_dir "$INSTALL_DIR" +app_update 294420 validate +quit >> "$STEAMCMD_LOG_FILE" 2>&1
-fi
+# Server is pre-installed in the image at $INSTALL_DIR
+# Check for updates on every start directly in the installation directory
+echo "Checking for 7 Days to Die server updates in $INSTALL_DIR..."
+# Redirect stdout and stderr to the log file
+$STEAMCMD_DIR/steamcmd.sh +login anonymous +force_install_dir "$INSTALL_DIR" +app_update 294420 validate +quit >> "$STEAMCMD_LOG_FILE" 2>&1
 
-echo "SteamCMD update/install process finished. Check $STEAMCMD_LOG_FILE for details."
+echo "SteamCMD update check finished. Check $STEAMCMD_LOG_FILE for details."
 
-# Copy/update serverconfig.xml from the image build to the persistent volume
-# Only do this if COPY_CONFIG_ON_START is explicitly set to true (or is unset, defaulting to true)
-if [ "${COPY_CONFIG_ON_START:-true}" = "true" ]; then
-  echo "Copying serverconfig.xml from image to $CONFIG_DEST_PATH..."
-  cp "$CONFIG_SOURCE_PATH" "$CONFIG_DEST_PATH"
-else
-  echo "Skipping serverconfig.xml copy. Server will use existing or generate default in $CONFIG_DEST_PATH."
-  # Ensure the config file path exists if we aren't copying, allowing server to generate if needed
-  # If the server needs the file to exist even if empty, use touch.
-  # If it can create it itself, this might not be needed.
-  # Let's assume touching it is safe.
-  touch "$CONFIG_DEST_PATH"
-fi
+# Always copy serverconfig.xml from the image build to the persistent volume on start.
+# This ensures the config defined in the repo/image is the one used,
+# but allows it to be persisted and potentially modified later via the file share
+# if the container restarts without a redeploy.
+echo "Copying serverconfig.xml from image ($CONFIG_SOURCE_PATH) to persistent volume ($CONFIG_DEST_PATH)..."
+cp "$CONFIG_SOURCE_PATH" "$CONFIG_DEST_PATH"
 
-# Start the server using the config file
-# Environment variables SERVERNAME and SERVERPASSWORD are set by Bicep,
-# but the server typically reads most settings from serverconfig.xml.
-# The -configfile parameter points to the config on the persistent volume.
+# Start the server using the config file from the persistent volume
 echo "Starting 7 Days to Die server..."
 
 # Generate timestamp for the log file
@@ -57,7 +42,19 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 SERVER_LOG_FILE="$LOG_DIR/server_log_${TIMESTAMP}.txt"
 
 echo "Server output will be logged to $SERVER_LOG_FILE"
+echo "Using config file: $CONFIG_DEST_PATH"
+echo "User data and saves will be stored in: $DATA_DIR"
 
 # Use exec to replace the shell process with the server process
-# Log output to the timestamped file in the persistent logs directory
-exec "$SERVER_EXEC" -logfile "$SERVER_LOG_FILE" -quit -batchmode -nographics -configfile="$CONFIG_DEST_PATH" -dedicated
+# -logfile: Specifies the log file path.
+# -quit, -batchmode, -nographics: Standard dedicated server flags.
+# -configfile: Points to the config on the persistent volume.
+# -UserDataPath: Directory for user-specific data (profiles, permissions). Point to persistent volume.
+# -SaveGameFolder: Directory for world save games. Point to persistent volume.
+exec "$SERVER_EXEC" \
+    -logfile "$SERVER_LOG_FILE" \
+    -quit \
+    -batchmode \
+    -nographics \
+    -configfile="$CONFIG_DEST_PATH" \
+    -dedicated
