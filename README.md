@@ -106,6 +106,7 @@ To deploy the server on Azure, follow these steps:
        ./deployment/deploy-bicep.ps1 -CopyConfigOnStart:$true
        ```
    - The script provisions all required Azure resources and deploys your container using the values from `config/config.json` and the chosen config copy behavior.
+   - **Disclaimer:** The very first time the container starts after deployment, it needs to download the 7 Days to Die server files using SteamCMD. This can take a significant amount of time (potentially 15-30 minutes or more) depending on Azure's network speed and the performance of the underlying file share, especially during the "preallocating" phase. You can monitor the progress by `exec`-ing into the container and tailing the `/data/steamcmd_update.log` file. Subsequent starts should be much faster as it only checks for updates.
 
 **Workflow for Initial Setup & Custom Config:**
 
@@ -121,13 +122,14 @@ To deploy the server on Azure, follow these steps:
 
 **Note:** Never commit your real `config.json` to version control. Use `config.json.example` as a template for sharing configuration requirements.
 
-## Deprecated: Local Docker Build/Push
+## Known Issues
 
-If you do have Docker installed locally, you may use the `push-to-acr.sh` script, but this is no longer required or recommended for most users.
+*   **Bicep Not Found in PATH:** Occasionally, after running `./deployment/install-bicep.ps1`, the `bicep` command might not be immediately available in your terminal's PATH, causing `./deployment/deploy-bicep.ps1` to fail. This can sometimes happen if the terminal session doesn't pick up the updated PATH environment variable correctly.
+    *   **Solution:** Close and reopen your PowerShell terminal. If the issue persists, simply run `./deployment/install-bicep.ps1` again in the new terminal session. This usually resolves the problem.
 
 ## Contributing
 
-Feel free to submit issues or pull requests for improvements or bug fixes.
+We are not taking contributions at this time.
 
 ## License
 
