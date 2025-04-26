@@ -54,10 +54,11 @@ This project provides a Dockerized setup for running a 7 Days to Die server in t
     Install-Module -Name Az -Scope CurrentUser -Repository PSGallery -Force
     ```
     *(You might need to accept prompts to trust the repository during installation.)*
-*   **Bicep CLI:** The `deploy-bicep.ps1` script uses Bicep to deploy Azure resources. Install or update it using the Azure CLI:
+*   **Bicep CLI:** The `deploy-bicep.ps1` script uses Bicep to deploy Azure resources. Install it by running the provided script (you may need to adjust PowerShell execution policy):
     ```powershell
-    az bicep install
+    ./deployment/install-bicep.ps1
     ```
+    *(You may need to close and reopen your terminal after running the script for the PATH changes to take effect.)*
 
 To deploy the server on Azure, follow these steps:
 

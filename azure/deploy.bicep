@@ -5,10 +5,12 @@ param containerImageTag string
 param containerGroupName string
 param storageAccountName string = uniqueString(resourceGroup().id, '7dtdstorage')
 param fileShareName string
-param acrPassword string @secure()
+@secure()
+param acrPassword string
 param acrUsername string
+@secure()
+param serverPassword string
 param serverName string
-param serverPassword string @secure()
 param copyConfigOnStart bool = true // New parameter to control config copy
 
 resource storageAccount 'Microsoft.Storage/storageAccounts@2022-09-01' = {
@@ -159,5 +161,5 @@ resource containerGroup 'Microsoft.ContainerInstance/containerGroups@2023-05-01'
 }
 
 output containerGroupNameOutput string = containerGroupName
-output containerGroupIp string = containerGroup.properties.ipAddress.ip
+// output containerGroupIp string = containerGroup.properties.ipAddress.ip // Removed/Commented out due to DeploymentOutputEvaluationFailed error
 output containerGroupFqdn string = containerGroup.properties.ipAddress.fqdn

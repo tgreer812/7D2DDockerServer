@@ -6,19 +6,28 @@ INSTALL_DIR="/data" # Mount point for persistent Azure File Share
 CONFIG_SOURCE_PATH="/7dtd/serverconfig.xml" # Config copied from image
 CONFIG_DEST_PATH="$INSTALL_DIR/serverconfig.xml"
 SERVER_EXEC="$INSTALL_DIR/7DaysToDieServer.x86_64"
+STEAMCMD_LOG_FILE="$INSTALL_DIR/steamcmd_update.log" # Log file for steamcmd output
 
 # Ensure the install directory exists (it should be mounted, but check anyway)
 mkdir -p "$INSTALL_DIR"
+# Clear or create the log file on start
+> "$STEAMCMD_LOG_FILE"
+
+echo "Redirecting SteamCMD output to $STEAMCMD_LOG_FILE"
 
 # Check if server executable exists in the persistent volume
 if [ ! -f "$SERVER_EXEC" ]; then
   echo "7 Days to Die server not found in $INSTALL_DIR. Installing for the first time..."
-  $STEAMCMD_DIR/steamcmd.sh +login anonymous +force_install_dir "$INSTALL_DIR" +app_update 294420 validate +quit
+  # Redirect stdout and stderr to the log file
+  $STEAMCMD_DIR/steamcmd.sh +login anonymous +force_install_dir "$INSTALL_DIR" +app_update 294420 validate +quit >> "$STEAMCMD_LOG_FILE" 2>&1
 else
   echo "7 Days to Die server found in $INSTALL_DIR. Checking for updates..."
   # Optionally update on every start - SteamCMD should only download changes
-  $STEAMCMD_DIR/steamcmd.sh +login anonymous +force_install_dir "$INSTALL_DIR" +app_update 294420 validate +quit
+  # Redirect stdout and stderr to the log file
+  $STEAMCMD_DIR/steamcmd.sh +login anonymous +force_install_dir "$INSTALL_DIR" +app_update 294420 validate +quit >> "$STEAMCMD_LOG_FILE" 2>&1
 fi
+
+echo "SteamCMD update/install process finished. Check $STEAMCMD_LOG_FILE for details."
 
 # Copy/update serverconfig.xml from the image build to the persistent volume
 # Only do this if COPY_CONFIG_ON_START is explicitly set to true (or is unset, defaulting to true)

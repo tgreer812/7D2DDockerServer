@@ -2,21 +2,45 @@
 
 [CmdletBinding()]
 param (
+    # Default path is now relative to the repo root
     [Parameter(Mandatory=$false)]
-    [string]$ConfigPath = '../config/config.json', # Adjusted default path
+    [string]$ConfigPath = 'config/config.json',
 
     [Parameter(Mandatory=$false)]
     [ValidateSet('Incremental', 'Complete')]
     [string]$DeploymentMode = 'Incremental',
 
     [Parameter(Mandatory=$false)]
-    [bool]$CopyConfigOnStart = $true # New parameter, defaults to true
+    [bool]$CopyConfigOnStart = $true,
+
+    [Parameter(Mandatory=$false)]
+    [switch]$Authenticate
 )
 
-# Construct absolute path for config if relative
-# Use Resolve-Path relative to the script's location for robustness
-if (-not [System.IO.Path]::IsPathRooted($ConfigPath)) {
-    $ConfigPath = Resolve-Path -Path (Join-Path $PSScriptRoot $ConfigPath) -ErrorAction SilentlyContinue
+# Azure authentication logic
+if ($Authenticate) {
+    Write-Host "--authenticate flag detected. Launching device code authentication..."
+    Connect-AzAccount -DeviceCode
+} elseif (-not (Get-AzContext)) {
+    Write-Host "You are not logged in to Azure. Please run this script with the -Authenticate flag to log in using device code authentication, or log in manually using Connect-AzAccount."
+    exit 1
+}
+
+# Determine repository root (assuming script is in 'deployment' folder)
+$repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
+Write-Verbose "Setting working directory to repository root: $repoRoot"
+Set-Location $repoRoot
+
+# Construct absolute path for config if relative path was provided *as parameter*
+# If default is used, it's already relative to repo root.
+if ($PSBoundParameters.ContainsKey('ConfigPath') -and (-not [System.IO.Path]::IsPathRooted($ConfigPath))) {
+    # If a relative path was passed in, resolve it against the original location before changing directory
+    # This is less common, usually user provides full path or relies on default
+    Write-Warning "Relative ConfigPath parameter provided. Resolving from original location. Consider using default or absolute path."
+    $ConfigPath = Resolve-Path -Path $ConfigPath -ErrorAction SilentlyContinue
+} elseif (-not $PSBoundParameters.ContainsKey('ConfigPath')) {
+    # Resolve the default path relative to the repo root
+    $ConfigPath = Resolve-Path -Path $ConfigPath -ErrorAction SilentlyContinue
 }
 
 # Check if config file exists
@@ -40,24 +64,44 @@ foreach ($prop in $requiredProperties) {
 # Deploy Bicep template
 Write-Host "Starting Bicep deployment in resource group '$($config.resourceGroup)'..."
 
-# Prepare parameters, ensuring boolean is passed correctly
-$templateParameters = @{
-    containerRegistryName = $config.acrName
-    containerImageName = $config.imageName
-    containerImageTag = $config.tag
-    containerGroupName = $config.containerGroupName
-    fileShareName = $config.fileShareName
-    acrPassword = $config.acrPassword
-    acrUsername = $config.acrName # Use acrName as username
-    serverName = $config.serverName
-    serverPassword = $config.serverPassword
-    copyConfigOnStart = [System.Convert]::ToBoolean($CopyConfigOnStart) # Explicit bool conversion
+# Prepare secure parameters
+$secureAcrPassword = (ConvertTo-SecureString -String $config.acrPassword -AsPlainText -Force)
+$secureServerPassword = (ConvertTo-SecureString -String $config.serverPassword -AsPlainText -Force)
+
+# Debug: Output the parameters being passed to Bicep
+Write-Host "DEBUG: Parameters to be passed directly:"
+Write-Host "  containerRegistryName: $($config.acrName)"
+Write-Host "  containerImageName: $($config.imageName)"
+Write-Host "  containerImageTag: $($config.tag)"
+Write-Host "  containerGroupName: $($config.containerGroupName)"
+Write-Host "  fileShareName: $($config.fileShareName)"
+Write-Host "  acrUsername: $($config.acrName)"
+Write-Host "  serverName: $($config.serverName)"
+Write-Host "  copyConfigOnStart: $([System.Convert]::ToBoolean($CopyConfigOnStart))"
+Write-Host "  acrPassword Type: $($secureAcrPassword.GetType().FullName)"
+Write-Host "  serverPassword Type: $($secureServerPassword.GetType().FullName)"
+
+# Template file path is now relative to repo root
+$templateFilePath = 'azure/deploy.bicep'
+if (-not (Test-Path $templateFilePath)) {
+    Write-Error "Bicep template file not found at expected location: $templateFilePath (relative to $repoRoot)"
+    exit 1
 }
 
+# Pass ALL parameters directly by name
 New-AzResourceGroupDeployment `
     -ResourceGroupName $config.resourceGroup `
-    -TemplateFile './azure/deploy.bicep' `
-    -TemplateParameterObject $templateParameters `
+    -TemplateFile $templateFilePath `
+    -containerRegistryName $config.acrName `
+    -containerImageName $config.imageName `
+    -containerImageTag $config.tag `
+    -containerGroupName $config.containerGroupName `
+    -fileShareName $config.fileShareName `
+    -acrUsername $config.acrName `
+    -serverName $config.serverName `
+    -copyConfigOnStart ([System.Convert]::ToBoolean($CopyConfigOnStart)) `
+    -acrPassword $secureAcrPassword `
+    -serverPassword $secureServerPassword `
     -Mode $DeploymentMode `
     -Verbose
 
