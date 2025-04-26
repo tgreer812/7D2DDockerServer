@@ -10,5 +10,8 @@
   "resourceGroup": "<your-resource-group>",
   "location": "<your-location> e.g eastus",
   "acrPassword": "<your-acr-password>",
-  "adminPrincipalId": "<your-admin-principal-id>"
+  "adminPrincipalId": "<your-admin-principal-id>",
+  "vmName": "<your-vm-name>",
+  "adminUsername": "<your-vm-admin-username>",
+  "adminPassword": "<your-vm-admin-password>"
 }

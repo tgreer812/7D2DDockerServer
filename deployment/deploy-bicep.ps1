@@ -18,7 +18,6 @@
 
 [CmdletBinding()]
 param (
-    # Default path is now relative to the repo root
     [Parameter(Mandatory=$false)]
     [string]$ConfigPath = 'config/config.json',
 
@@ -45,14 +44,10 @@ Write-Verbose "Setting working directory to repository root: $repoRoot"
 Set-Location $repoRoot
 
 # Construct absolute path for config if relative path was provided *as parameter*
-# If default is used, it's already relative to repo root.
 if ($PSBoundParameters.ContainsKey('ConfigPath') -and (-not [System.IO.Path]::IsPathRooted($ConfigPath))) {
-    # If a relative path was passed in, resolve it against the original location before changing directory
-    # This is less common, usually user provides full path or relies on default
     Write-Warning "Relative ConfigPath parameter provided. Resolving from original location. Consider using default or absolute path."
     $ConfigPath = Resolve-Path -Path $ConfigPath -ErrorAction SilentlyContinue
 } elseif (-not $PSBoundParameters.ContainsKey('ConfigPath')) {
-    # Resolve the default path relative to the repo root
     $ConfigPath = Resolve-Path -Path $ConfigPath -ErrorAction SilentlyContinue
 }
 
@@ -66,11 +61,8 @@ if (-not (Test-Path $ConfigPath)) {
 $config = Get-Content $ConfigPath | ConvertFrom-Json
 
 # --- Validate Configuration ---
-# Required keys
-$requiredKeys = @('acrName', 'acrLoginServer', 'imageName', 'tag', 'containerGroupName', 'fileShareName', 'serverName', 'serverPassword', 'resourceGroup', 'acrPassword', 'location') 
-# Optional keys with dependencies
-$optionalKeys = @('adminPrincipalId', 'adminPrincipalType')
-
+# Required keys for VM deployment
+$requiredKeys = @('acrName', 'acrLoginServer', 'imageName', 'tag', 'resourceGroup', 'location', 'vmName', 'adminUsername', 'adminPassword')
 $missingRequiredKeys = @()
 foreach ($key in $requiredKeys) {
     if (-not $config.PSObject.Properties.Name.Contains($key) -or [string]::IsNullOrWhiteSpace($config.$key)) {
@@ -83,34 +75,16 @@ if ($missingRequiredKeys.Count -gt 0) {
     exit 1
 }
 
-# Validate optional adminPrincipalId/Type - if ID is present, Type must also be present
-$adminPrincipalId = $null
-$adminPrincipalType = 'User' # Default value used in Bicep if not provided
-if ($config.PSObject.Properties.Name.Contains('adminPrincipalId') -and (-not [string]::IsNullOrWhiteSpace($config.adminPrincipalId))) {
-    $adminPrincipalId = $config.adminPrincipalId
-    if ($config.PSObject.Properties.Name.Contains('adminPrincipalType') -and (-not [string]::IsNullOrWhiteSpace($config.adminPrincipalType))) {
-        $adminPrincipalType = $config.adminPrincipalType
-    } else {
-        # If ID is set but Type is missing/empty, use the default and warn
-        Write-Warning "'adminPrincipalId' is set in config, but 'adminPrincipalType' is missing or empty. Defaulting to 'User'."
-    }
-} elseif ($config.PSObject.Properties.Name.Contains('adminPrincipalType') -and (-not [string]::IsNullOrWhiteSpace($config.adminPrincipalType))) {
-    # If Type is set but ID is missing/empty, warn that Type will be ignored
-    Write-Warning "'adminPrincipalType' is set in config, but 'adminPrincipalId' is missing or empty. The 'adminPrincipalType' setting will be ignored."
-}
-
-# Secure passwords
-$secureAcrPassword = ConvertTo-SecureString -String $config.acrPassword -AsPlainText -Force
-$secureServerPassword = ConvertTo-SecureString -String $config.serverPassword -AsPlainText -Force
+# Secure password
+$secureAdminPassword = ConvertTo-SecureString -String $config.adminPassword -AsPlainText -Force
 
 # Check/Create Resource Group
 Write-Host "Checking for Resource Group '$($config.resourceGroup)' in location '$($config.location)'..."
-$rg = Get-AzResourceGroup -Name $config.resourceGroup -ErrorAction SilentlyContinue # Check existence first
+$rg = Get-AzResourceGroup -Name $config.resourceGroup -ErrorAction SilentlyContinue
 
 if ($null -eq $rg) {
     Write-Host "Resource Group '$($config.resourceGroup)' not found. Creating..."
     try {
-        # Create the resource group using the specified location
         New-AzResourceGroup -Name $config.resourceGroup -Location $config.location -ErrorAction Stop | Out-Null
         Write-Host "Resource Group '$($config.resourceGroup)' created successfully."
     } catch {
@@ -118,41 +92,48 @@ if ($null -eq $rg) {
         exit 1
     }
 } else {
-    # Verify existing RG location matches config location
     if ($rg.Location -ne $config.location) {
         Write-Warning "Resource Group '$($config.resourceGroup)' exists but in location '$($rg.Location)', while config specifies '$($config.location)'. Deployment will proceed to the existing group's location."
-        # Update the location variable to match the actual RG location for the deployment command
         $config.location = $rg.Location
     } else {
         Write-Host "Resource Group '$($config.resourceGroup)' already exists in location '$($config.location)'.."
     }
 }
 
-# Deploy Bicep template
+# Deploy Bicep template for VM
 Write-Host "Starting Bicep deployment to Resource Group '$($config.resourceGroup)'..."
 
-# Template file path is now relative to repo root
 $templateFilePath = 'azure/deploy.bicep'
 if (-not (Test-Path $templateFilePath)) {
-    Write-Error "Bicep template file not found at expected location: $templateFilePath (relative to $repoRoot)"
+    Write-Error "Bicep template file not found at expected location: $templateFilePath (relative to repo root)"
     exit 1
 }
 
-# Pass ALL parameters directly by name
-    New-AzResourceGroupDeployment `
-        -ResourceGroupName $config.resourceGroup `
-        -TemplateFile $templateFilePath `
-        -containerRegistryName $config.acrName `
-        -containerImageName $config.imageName `
-        -containerImageTag $config.tag `
-        -containerGroupName $config.containerGroupName `
-        -fileShareName $config.fileShareName `
-        -acrUsername $config.acrName `
-        -serverName $config.serverName `
-        -acrPassword $secureAcrPassword `
-        -adminPrincipalId $config.adminPrincipalId `
-        -serverPassword $secureServerPassword `
-        -Mode $DeploymentMode `
-        -Verbose
+$deployParams = @{
+    ResourceGroupName = $config.resourceGroup
+    TemplateFile = $templateFilePath
+    location = $config.location
+    vmName = $config.vmName
+    adminUsername = $config.adminUsername
+    adminPassword = $secureAdminPassword
+    Mode = $DeploymentMode
+}
+
+Write-Host "Deployment Parameters:"
+$deployParams.GetEnumerator() | ForEach-Object { 
+    if ($_.Name -ne 'adminPassword') {
+        Write-Host "  $($_.Name): $($_.Value)" 
+    } else {
+        Write-Host "  $($_.Name): [secure]"
+    }
+}
+
+try {
+    New-AzResourceGroupDeployment @deployParams -Verbose -ErrorAction Stop
+    Write-Host "Bicep deployment completed successfully."
+} catch {
+    Write-Error "Bicep deployment failed. Error: $_"
+    exit 1
+}
 
 Write-Host "Deployment script finished."

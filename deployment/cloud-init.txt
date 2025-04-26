@@ -1,0 +1,13 @@
+#cloud-config
+package_update: true
+packages:
+  - docker.io
+runcmd:
+  # Install Azure CLI
+  - curl -sL https://aka.ms/InstallAzureCLIDeb | bash
+  - systemctl start docker
+  - usermod -aG docker $USER
+  - su - $USER -c "az acr login --name <acrName>"
+  - su - $USER -c "docker pull <acrLoginServer>/<imageName>:<imageTag>"
+  - su - $USER -c "docker rm -f 7dtd-server || true"
+  - su - $USER -c "docker run -d --name 7dtd-server -p 26900:26900/tcp -p 26900:26900/udp -p 26901:26901/udp -p 26902:26902/udp -p 26903:26903/udp -p 8080:8080/tcp -p 8081:8081/tcp <acrLoginServer>/<imageName>:<imageTag>"

@@ -119,6 +119,60 @@ This project provides a Dockerized setup for running a 7 Days to Die server in t
 
 **Note:** Never commit your real `config.json` or `serverconfig.xml` to version control. Use the `.example` / `.default` files as templates.
 
+## Azure VM Deployment (Dockerized 7 Days to Die Server)
+
+**Overview:**
+This project now provisions a dedicated Ubuntu VM in Azure, automatically installs Docker, pulls your container from Azure Container Registry, and runs it with all required ports open. No manual SSH or VM setup is needed.
+
+### Required Ports
+The following ports are opened in the VM's Network Security Group (NSG):
+- 26900 (TCP/UDP) — Game server
+- 26901 (UDP) — Game server
+- 26902 (UDP) — Game server
+- 26903 (UDP) — Game server
+- 8080 (TCP) — Web dashboard
+- 8081 (TCP) — Telnet
+- 22 (TCP) — SSH (for admin access)
+
+### Configuration
+Edit `config/config.json` and ensure it contains the following fields:
+
+```
+{
+  "acrName": "<your-acr-name>",
+  "acrLoginServer": "<your-acr-name>.azurecr.io",
+  "imageName": "<your-image-name>",
+  "tag": "latest",
+  "resourceGroup": "<your-resource-group>",
+  "location": "<azure-region>",
+  "vmName": "<your-vm-name>",
+  "adminUsername": "<your-vm-admin-username>",
+  "adminPassword": "<your-vm-admin-password>"
+}
+```
+
+### Deployment Steps
+
+1. **Build and Push Your Docker Image to ACR**
+   - Use `./deployment/push-to-acr.ps1` to build and push your image to Azure Container Registry.
+
+2. **Deploy the VM and Server**
+   - Run `./deployment/deploy-bicep.ps1`.
+   - This will:
+     - Provision a VM, VNet, NSG, NIC, and public IP
+     - Open all required ports
+     - Use cloud-init to install Docker, login to ACR, pull your image, and run the container automatically
+
+3. **Access Your Server**
+   - The public IP of your VM will be output at the end of deployment.
+   - Connect to your 7DTD server using that IP and the appropriate ports.
+   - For SSH access: `ssh <adminUsername>@<public-ip>`
+
+### Notes
+- The VM is provisioned with Ubuntu 18.04 LTS and Standard_B2s size by default (edit the Bicep file to change).
+- All server data is stored inside the container unless you mount Azure Files or a disk (not included in this template).
+- The deployment is fully automated; no manual VM login is required for initial setup.
+
 ## Known Issues
 
 *   **Bicep Not Found in PATH:** Occasionally, after running `./deployment/install-bicep.ps1`, the `bicep` command might not be immediately available in your terminal's PATH, causing `./deployment/deploy-bicep.ps1` to fail. This can sometimes happen if the terminal session doesn't pick up the updated PATH environment variable correctly.
