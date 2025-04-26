@@ -1,0 +1,12 @@
+{
+  "acrName": "<your-acr-name>",
+  "acrLoginServer": "<your-acr-login-server>",
+  "imageName": "<your-image-name>",
+  "tag": "latest",
+  "containerGroupName": "<your-container-group-name>",
+  "fileShareName": "<your-file-share-name>",
+  "serverName": "<your-7dtd-server-name>",
+  "serverPassword": "<your-7dtd-server-password>",
+  "resourceGroup": "<your-resource-group>",
+  "acrPassword": "<your-acr-password>"
+}

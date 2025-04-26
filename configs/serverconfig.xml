@@ -1,0 +1,21 @@
+<serverconfig>
+    <server>
+        <name>Your Server Name</name>
+        <description>Your Server Description</description>
+        <maxPlayers>16</maxPlayers>
+        <gameMode>Survival</gameMode>
+        <difficulty>Normal</difficulty>
+        <dayNightLength>60</dayNightLength>
+        <serverPort>26900</serverPort>
+        <publicServer>false</publicServer>
+        <password></password>
+        <gameWorld>YourWorldName</gameWorld>
+        <worldSize>4096</worldSize>
+        <enablePVP>true</enablePVP>
+        <enableLootRespawn>true</enableLootRespawn>
+        <lootRespawnTime>10</lootRespawnTime>
+        <enableZombieLoot>false</enableZombieLoot>
+        <zombieSpawnRate>1</zombieSpawnRate>
+        <zombieDifficulty>Normal</zombieDifficulty>
+    </server>
+</serverconfig>
