@@ -46,6 +46,19 @@ This project provides a Dockerized setup for running a 7 Days to Die server in t
 
 ## Azure Deployment
 
+**Prerequisites:**
+
+*   **Azure CLI:** Ensure you have the [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli) installed and configured.
+*   **Azure PowerShell:** The deployment scripts require Azure PowerShell modules. Install them by running the following command in an **Administrator** PowerShell terminal:
+    ```powershell
+    Install-Module -Name Az -Scope CurrentUser -Repository PSGallery -Force
+    ```
+    *(You might need to accept prompts to trust the repository during installation.)*
+*   **Bicep CLI:** The `deploy-bicep.ps1` script uses Bicep to deploy Azure resources. Install or update it using the Azure CLI:
+    ```powershell
+    az bicep install
+    ```
+
 To deploy the server on Azure, follow these steps:
 
 1. **Configure Deployment Settings**

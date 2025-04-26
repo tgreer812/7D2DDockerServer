@@ -3,7 +3,7 @@
 [CmdletBinding()]
 param (
     [Parameter(Mandatory=$false)]
-    [string]$ConfigPath = 'config/config.json',
+    [string]$ConfigPath = '../config/config.json', # Adjusted default path
 
     [Parameter(Mandatory=$false)]
     [ValidateSet('Incremental', 'Complete')]
@@ -14,8 +14,9 @@ param (
 )
 
 # Construct absolute path for config if relative
+# Use Resolve-Path relative to the script's location for robustness
 if (-not [System.IO.Path]::IsPathRooted($ConfigPath)) {
-    $ConfigPath = Join-Path $PSScriptRoot $ConfigPath
+    $ConfigPath = Resolve-Path -Path (Join-Path $PSScriptRoot $ConfigPath) -ErrorAction SilentlyContinue
 }
 
 # Check if config file exists
