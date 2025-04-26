@@ -7,10 +7,13 @@ CONFIG_SOURCE_PATH="/7dtd/serverconfig.xml" # Config copied from image
 CONFIG_DEST_PATH="$INSTALL_DIR/serverconfig.xml"
 SERVER_EXEC="$INSTALL_DIR/7DaysToDieServer.x86_64"
 STEAMCMD_LOG_FILE="$INSTALL_DIR/steamcmd_update.log" # Log file for steamcmd output
+LOG_DIR="$INSTALL_DIR/logs" # Directory for server logs
 
 # Ensure the install directory exists (it should be mounted, but check anyway)
 mkdir -p "$INSTALL_DIR"
-# Clear or create the log file on start
+# Ensure the log directory exists
+mkdir -p "$LOG_DIR"
+# Clear or create the steamcmd log file on start
 > "$STEAMCMD_LOG_FILE"
 
 echo "Redirecting SteamCMD output to $STEAMCMD_LOG_FILE"
@@ -48,4 +51,13 @@ fi
 # but the server typically reads most settings from serverconfig.xml.
 # The -configfile parameter points to the config on the persistent volume.
 echo "Starting 7 Days to Die server..."
-exec "$SERVER_EXEC" -logfile /dev/stdout -quit -batchmode -nographics -configfile="$CONFIG_DEST_PATH" -dedicated
+
+# Generate timestamp for the log file
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+SERVER_LOG_FILE="$LOG_DIR/server_log_${TIMESTAMP}.txt"
+
+echo "Server output will be logged to $SERVER_LOG_FILE"
+
+# Use exec to replace the shell process with the server process
+# Log output to the timestamped file in the persistent logs directory
+exec "$SERVER_EXEC" -logfile "$SERVER_LOG_FILE" -quit -batchmode -nographics -configfile="$CONFIG_DEST_PATH" -dedicated
