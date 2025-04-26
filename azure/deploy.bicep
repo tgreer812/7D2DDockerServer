@@ -17,9 +17,9 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2022-09-01' = {
   name: storageAccountName
   location: location
   sku: {
-    name: 'Standard_LRS'
+    name: 'Premium_LRS' // Changed from Standard_LRS
   }
-  kind: 'StorageV2'
+  kind: 'FileStorage' // Changed from StorageV2 for Premium Files
   properties: {}
 }
 
@@ -32,7 +32,7 @@ resource fileShare 'Microsoft.Storage/storageAccounts/fileServices/shares@2022-0
   parent: fileService
   name: fileShareName
   properties: {
-    accessTier: 'TransactionOptimized'
+    shareQuota: 100 // Added shareQuota (in GiB), minimum for Premium is 100
   }
 }
 
@@ -107,6 +107,7 @@ resource containerGroup 'Microsoft.ContainerInstance/containerGroups@2023-05-01'
     osType: 'Linux'
     ipAddress: {
       type: 'Public'
+      ip: ''
       ports: [
         {
           protocol: 'UDP'
@@ -161,5 +162,5 @@ resource containerGroup 'Microsoft.ContainerInstance/containerGroups@2023-05-01'
 }
 
 output containerGroupNameOutput string = containerGroupName
-// output containerGroupIp string = containerGroup.properties.ipAddress.ip // Removed/Commented out due to DeploymentOutputEvaluationFailed error
+output containerGroupIp string = containerGroup.properties.ipAddress.ip
 output containerGroupFqdn string = containerGroup.properties.ipAddress.fqdn
