@@ -100,6 +100,19 @@ if ($null -eq $rg) {
     }
 }
 
+# --- Prepare cloud-init with ACR credentials and image info ---
+$cloudInitTemplatePath = Join-Path $repoRoot 'deployment/cloud-init.txt'
+$cloudInitTempPath = Join-Path $repoRoot 'deployment/cloud-init-temp.txt'
+
+$cloudInitContent = Get-Content $cloudInitTemplatePath -Raw
+$cloudInitContent = $cloudInitContent -replace '<acrLoginServer>', $config.acrLoginServer
+$cloudInitContent = $cloudInitContent -replace '<acrUsername>', $config.acrName
+$cloudInitContent = $cloudInitContent -replace '<acrPassword>', $config.acrPassword
+$cloudInitContent = $cloudInitContent -replace '<imageName>', $config.imageName
+$cloudInitContent = $cloudInitContent -replace '<imageTag>', $config.tag
+
+Set-Content -Path $cloudInitTempPath -Value $cloudInitContent
+
 # Deploy Bicep template for VM
 Write-Host "Starting Bicep deployment to Resource Group '$($config.resourceGroup)'..."
 
@@ -119,6 +132,11 @@ $deployParams = @{
     Mode = $DeploymentMode
 }
 
+# Patch Bicep to use the temp cloud-init file
+# We'll copy the temp file to the same relative path Bicep expects
+$expectedCloudInitPath = Join-Path $repoRoot 'deployment/cloud-init.txt'
+Copy-Item -Path $cloudInitTempPath -Destination $expectedCloudInitPath -Force
+
 Write-Host "Deployment Parameters:"
 $deployParams.GetEnumerator() | ForEach-Object { 
     if ($_.Name -ne 'adminPassword') {
@@ -135,5 +153,8 @@ try {
     Write-Error "Bicep deployment failed. Error: $_"
     exit 1
 }
+
+# Clean up temp file
+Remove-Item $cloudInitTempPath -ErrorAction SilentlyContinue
 
 Write-Host "Deployment script finished."
