@@ -45,6 +45,9 @@ echo "Server output will be logged to $SERVER_LOG_FILE"
 echo "Using config file: $CONFIG_DEST_PATH"
 echo "User data and saves will be stored in: $DATA_DIR"
 
+# Set LD_LIBRARY_PATH to include the directory containing steamclient.so
+export LD_LIBRARY_PATH="$STEAMCMD_DIR/linux64:$LD_LIBRARY_PATH"
+
 # Use exec to replace the shell process with the server process
 # -logfile: Specifies the log file path.
 # -quit, -batchmode, -nographics: Standard dedicated server flags.
