@@ -1,4 +1,4 @@
-FROM ubuntu:20.04
+FROM ubuntu:24.04
 
 RUN apt-get update && apt-get install -y \
     wget \
@@ -12,6 +12,10 @@ RUN mkdir -p $STEAMCMD_DIR
 RUN wget https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz -O /tmp/steamcmd.tar.gz && \
     tar -xvzf /tmp/steamcmd.tar.gz -C $STEAMCMD_DIR && \
     rm /tmp/steamcmd.tar.gz
+
+# Create data directory and declare as volume
+RUN mkdir -p /data
+VOLUME /data
 
 WORKDIR /7dtd
 

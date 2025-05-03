@@ -3,29 +3,28 @@ param vmName string
 param adminUsername string
 @secure()
 param adminPassword string
+param customDataBase64 string
+param customScriptCommand string // New parameter for the command
 
-var addressPrefix = '10.0.0.0/24'
 var nsgName = '${vmName}-nsg'
 var vnetName = '${vmName}-vnet'
-var pipName = '${vmName}-pip'
+var subnetName = 'default'
+var publicIpName = '${vmName}-pip'
 var nicName = '${vmName}-nic'
-
-resource publicIP 'Microsoft.Network/publicIPAddresses@2023-05-01' = {
-  name: pipName
-  location: location
-  sku: { name: 'Basic' }
-  properties: { publicIPAllocationMethod: 'Dynamic' }
+var vmSize = 'Standard_B2s'
+var osDiskCreateOption = 'FromImage'
+var ubuntuImage = {
+  publisher: 'canonical' // Match case from working VM JSON
+  offer: 'ubuntu-24_04-lts' // Match offer from working VM JSON
+  sku: 'server' // Match sku from working VM JSON
+  version: 'latest'
 }
 
-resource vnet 'Microsoft.Network/virtualNetworks@2023-05-01' = {
-  name: vnetName
+resource publicIP 'Microsoft.Network/publicIPAddresses@2023-05-01' = {
+  name: publicIpName
   location: location
-  properties: {
-    addressSpace: { addressPrefixes: [addressPrefix] }
-    subnets: [
-      { name: 'default', properties: { addressPrefix: addressPrefix } }
-    ]
-  }
+  sku: { name: 'Standard' } // Standard SKU recommended
+  properties: { publicIPAllocationMethod: 'Static' } // Static IP is useful for servers
 }
 
 resource nsg 'Microsoft.Network/networkSecurityGroups@2023-05-01' = {
@@ -33,15 +32,81 @@ resource nsg 'Microsoft.Network/networkSecurityGroups@2023-05-01' = {
   location: location
   properties: {
     securityRules: [
-      { name: 'Allow-26900-TCP', properties: { priority: 1001, direction: 'Inbound', access: 'Allow', protocol: 'Tcp', sourcePortRange: '*', destinationPortRange: '26900', sourceAddressPrefix: '*', destinationAddressPrefix: '*' } }
-      { name: 'Allow-26900-UDP', properties: { priority: 1002, direction: 'Inbound', access: 'Allow', protocol: 'Udp', sourcePortRange: '*', destinationPortRange: '26900', sourceAddressPrefix: '*', destinationAddressPrefix: '*' } }
-      { name: 'Allow-26901-UDP', properties: { priority: 1003, direction: 'Inbound', access: 'Allow', protocol: 'Udp', sourcePortRange: '*', destinationPortRange: '26901', sourceAddressPrefix: '*', destinationAddressPrefix: '*' } }
-      { name: 'Allow-26902-UDP', properties: { priority: 1004, direction: 'Inbound', access: 'Allow', protocol: 'Udp', sourcePortRange: '*', destinationPortRange: '26902', sourceAddressPrefix: '*', destinationAddressPrefix: '*' } }
-      { name: 'Allow-26903-UDP', properties: { priority: 1005, direction: 'Inbound', access: 'Allow', protocol: 'Udp', sourcePortRange: '*', destinationPortRange: '26903', sourceAddressPrefix: '*', destinationAddressPrefix: '*' } }
-      { name: 'Allow-8080-TCP', properties: { priority: 1006, direction: 'Inbound', access: 'Allow', protocol: 'Tcp', sourcePortRange: '*', destinationPortRange: '8080', sourceAddressPrefix: '*', destinationAddressPrefix: '*' } }
-      { name: 'Allow-8081-TCP', properties: { priority: 1007, direction: 'Inbound', access: 'Allow', protocol: 'Tcp', sourcePortRange: '*', destinationPortRange: '8081', sourceAddressPrefix: '*', destinationAddressPrefix: '*' } }
-      { name: 'Allow-22-TCP', properties: { priority: 1008, direction: 'Inbound', access: 'Allow', protocol: 'Tcp', sourcePortRange: '*', destinationPortRange: '22', sourceAddressPrefix: '*', destinationAddressPrefix: '*' } }
+      {
+        name: 'SSH'
+        properties: {
+          priority: 1000
+          access: 'Allow'
+          direction: 'Inbound'
+          protocol: 'Tcp'
+          sourcePortRange: '*'
+          destinationPortRange: '22'
+          sourceAddressPrefix: '*' // Consider restricting this to your IP for security
+          destinationAddressPrefix: '*'
+        }
+      }
+      {
+        name: '7DTD_Game_UDP'
+        properties: {
+          priority: 1010
+          access: 'Allow'
+          direction: 'Inbound'
+          protocol: 'Udp'
+          sourcePortRange: '*'
+          destinationPortRanges: [ '26900', '26901', '26902', '26903' ]
+          sourceAddressPrefix: '*'
+          destinationAddressPrefix: '*'
+        }
+      }
+      {
+        name: '7DTD_Game_TCP'
+        properties: {
+          priority: 1011
+          access: 'Allow'
+          direction: 'Inbound'
+          protocol: 'Tcp'
+          sourcePortRange: '*'
+          destinationPortRange: '26900'
+          sourceAddressPrefix: '*'
+          destinationAddressPrefix: '*'
+        }
+      }
+      {
+        name: '7DTD_WebDashboard'
+        properties: {
+          priority: 1020
+          access: 'Allow'
+          direction: 'Inbound'
+          protocol: 'Tcp'
+          sourcePortRange: '*'
+          destinationPortRange: '8080'
+          sourceAddressPrefix: '*'
+          destinationAddressPrefix: '*'
+        }
+      }
+      {
+        name: '7DTD_Telnet'
+        properties: {
+          priority: 1021
+          access: 'Allow'
+          direction: 'Inbound'
+          protocol: 'Tcp'
+          sourcePortRange: '*'
+          destinationPortRange: '8081'
+          sourceAddressPrefix: '*'
+          destinationAddressPrefix: '*'
+        }
+      }
     ]
+  }
+}
+
+resource vnet 'Microsoft.Network/virtualNetworks@2023-05-01' = {
+  name: vnetName
+  location: location
+  properties: {
+    addressSpace: { addressPrefixes: [ '10.0.0.0/16' ] }
+    subnets: [ { name: subnetName, properties: { addressPrefix: '10.0.0.0/24', networkSecurityGroup: { id: nsg.id } } } ]
   }
 }
 
@@ -53,37 +118,52 @@ resource nic 'Microsoft.Network/networkInterfaces@2023-05-01' = {
       {
         name: 'ipconfig1'
         properties: {
-          subnet: { id: vnet.properties.subnets[0].id }
+          subnet: { id: resourceId('Microsoft.Network/virtualNetworks/subnets', vnetName, subnetName) }
           privateIPAllocationMethod: 'Dynamic'
           publicIPAddress: { id: publicIP.id }
         }
       }
     ]
-    networkSecurityGroup: { id: nsg.id }
+    networkSecurityGroup: { id: nsg.id } // Associate NSG directly with NIC
   }
+  dependsOn: [ vnet ]
 }
 
 resource vm 'Microsoft.Compute/virtualMachines@2023-07-01' = {
   name: vmName
   location: location
   properties: {
-    hardwareProfile: { vmSize: 'Standard_B2s' }
+    hardwareProfile: { vmSize: vmSize }
     osProfile: {
       computerName: vmName
       adminUsername: adminUsername
       adminPassword: adminPassword
-      customData: base64(loadTextContent('../deployment/cloud-init.txt'))
+      customData: customDataBase64
     }
     storageProfile: {
-      imageReference: {
-        publisher: 'Canonical'
-        offer: 'UbuntuServer'
-        sku: '18.04-LTS'
-        version: 'latest'
+      imageReference: ubuntuImage
+      osDisk: { 
+        createOption: osDiskCreateOption
+        // Consider adding disk size if default is too small
+        // diskSizeGB: 128 
       }
-      osDisk: { createOption: 'FromImage' }
     }
     networkProfile: { networkInterfaces: [ { id: nic.id } ] }
+  }
+}
+
+resource vmCustomScriptExtension 'Microsoft.Compute/virtualMachines/extensions@2023-07-01' = {
+  parent: vm // Associate with the VM
+  name: 'install7dtdService'
+  location: location
+  properties: {
+    publisher: 'Microsoft.Azure.Extensions'
+    type: 'CustomScript'
+    typeHandlerVersion: '2.1'
+    autoUpgradeMinorVersion: true
+    settings: {
+      commandToExecute: customScriptCommand
+    }
   }
 }
 

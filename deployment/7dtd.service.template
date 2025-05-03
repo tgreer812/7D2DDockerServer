@@ -1,0 +1,29 @@
+# WARNING: Do not modify this file unless you know what you are doing. It is used by the deployment system
+[Unit]
+Description=7 Days To Die Dedicated Server Container
+Requires=docker.service
+After=docker.service
+
+[Service]
+Restart=always
+# Login to ACR - needed if the image is private
+ExecStartPre=/usr/bin/docker login <acrLoginServer> -u <acrUsername> -p <acrPassword>
+# Stop and remove old container if it exists
+ExecStartPre=-/usr/bin/docker stop 7dtd-server
+ExecStartPre=-/usr/bin/docker rm 7dtd-server
+# Run the container
+ExecStart=/usr/bin/docker run --name 7dtd-server \
+    -p 26900:26900/udp \
+    -p 26900:26900/tcp \
+    -p 26901:26901/udp \
+    -p 26902:26902/udp \
+    -p 26903:26903/udp \
+    -p 8080:8080/tcp \
+    -p 8081:8081/tcp \
+    -v /opt/7dtd-data:/data \
+    <acrLoginServer>/<imageName>:<imageTag>
+# Stop the container gracefully
+ExecStop=/usr/bin/docker stop 7dtd-server
+
+[Install]
+WantedBy=multi-user.target

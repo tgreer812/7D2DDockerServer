@@ -6,14 +6,15 @@
     Deploys the 7D2D Docker Server to Azure using Bicep.
 
 .DESCRIPTION
-    This script reads configuration from config/config.json, checks/creates the 
-    specified resource group, and then deploys the Azure resources defined in 
-    azure/deploy.bicep using the New-AzResourceGroupDeployment cmdlet.
+    This script reads configuration from config/config.json, checks/creates the
+    specified resource group, prepares a cloud-init script with injected values
+    (including a systemd service definition), and then deploys the Azure resources
+    defined in azure/deploy.bicep using the New-AzResourceGroupDeployment cmdlet.
 
 .NOTES
     File Name: deploy-bicep.ps1
     Author   : GitHub Copilot
-    Date     : 2025-04-26
+    Date     : 2025-05-01
 #>
 
 [CmdletBinding()]
@@ -43,26 +44,29 @@ $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 Write-Verbose "Setting working directory to repository root: $repoRoot"
 Set-Location $repoRoot
 
+# --- Define Configuration Paths ---
 # Construct absolute path for config if relative path was provided *as parameter*
 if ($PSBoundParameters.ContainsKey('ConfigPath') -and (-not [System.IO.Path]::IsPathRooted($ConfigPath))) {
     Write-Warning "Relative ConfigPath parameter provided. Resolving from original location. Consider using default or absolute path."
     $ConfigPath = Resolve-Path -Path $ConfigPath -ErrorAction SilentlyContinue
 } elseif (-not $PSBoundParameters.ContainsKey('ConfigPath')) {
+    # Resolve the default path relative to the repo root
     $ConfigPath = Resolve-Path -Path $ConfigPath -ErrorAction SilentlyContinue
 }
+$cloudInitTemplatePath = Join-Path $repoRoot 'deployment/cloud-init.txt'
+$serviceTemplatePath = Join-Path $repoRoot 'deployment/7dtd.service.template'
+$bicepTemplatePath = Join-Path $repoRoot 'azure/deploy.bicep'
 
-# Check if config file exists
+# --- Read Configuration ---
 if (-not (Test-Path $ConfigPath)) {
     Write-Error "Configuration file not found at $ConfigPath"
     exit 1
 }
-
-# Read configuration from JSON file
 $config = Get-Content $ConfigPath | ConvertFrom-Json
 
 # --- Validate Configuration ---
-# Required keys for VM deployment
-$requiredKeys = @('acrName', 'acrLoginServer', 'imageName', 'tag', 'resourceGroup', 'location', 'vmName', 'adminUsername', 'adminPassword')
+# Required keys for VM deployment (removed containerName)
+$requiredKeys = @('acrName', 'acrLoginServer', 'imageName', 'tag', 'resourceGroup', 'location', 'vmName', 'adminUsername', 'adminPassword', 'acrPassword')
 $missingRequiredKeys = @()
 foreach ($key in $requiredKeys) {
     if (-not $config.PSObject.Properties.Name.Contains($key) -or [string]::IsNullOrWhiteSpace($config.$key)) {
@@ -78,7 +82,7 @@ if ($missingRequiredKeys.Count -gt 0) {
 # Secure password
 $secureAdminPassword = ConvertTo-SecureString -String $config.adminPassword -AsPlainText -Force
 
-# Check/Create Resource Group
+# --- Check/Create Resource Group ---
 Write-Host "Checking for Resource Group '$($config.resourceGroup)' in location '$($config.location)'..."
 $rg = Get-AzResourceGroup -Name $config.resourceGroup -ErrorAction SilentlyContinue
 
@@ -94,67 +98,92 @@ if ($null -eq $rg) {
 } else {
     if ($rg.Location -ne $config.location) {
         Write-Warning "Resource Group '$($config.resourceGroup)' exists but in location '$($rg.Location)', while config specifies '$($config.location)'. Deployment will proceed to the existing group's location."
-        $config.location = $rg.Location
+        $config.location = $rg.Location # Update location to match existing RG
     } else {
-        Write-Host "Resource Group '$($config.resourceGroup)' already exists in location '$($config.location)'.."
+        Write-Host "Resource Group '$($config.resourceGroup)' already exists in location '$($config.location)'."
     }
 }
 
-# --- Prepare cloud-init with ACR credentials and image info ---
-$cloudInitTemplatePath = Join-Path $repoRoot 'deployment/cloud-init.txt'
-$cloudInitTempPath = Join-Path $repoRoot 'deployment/cloud-init-temp.txt'
+# --- Prepare Service Content and Cloud-Init ---
+# Read and process the systemd service template
+if (-not (Test-Path $serviceTemplatePath)) {
+    Write-Error "Systemd service template not found at $serviceTemplatePath"
+    exit 1
+}
+$serviceContent = Get-Content $serviceTemplatePath -Raw
+$serviceContent = $serviceContent -replace '<acrLoginServer>', $config.acrLoginServer
+$serviceContent = $serviceContent -replace '<acrUsername>', $config.acrName
+$serviceContent = $serviceContent -replace '<acrPassword>', $config.acrPassword
+$serviceContent = $serviceContent -replace '<imageName>', $config.imageName
+$serviceContent = $serviceContent -replace '<imageTag>', $config.tag
 
-$cloudInitContent = Get-Content $cloudInitTemplatePath -Raw
-$cloudInitContent = $cloudInitContent -replace '<acrLoginServer>', $config.acrLoginServer
-$cloudInitContent = $cloudInitContent -replace '<acrUsername>', $config.acrName
-$cloudInitContent = $cloudInitContent -replace '<acrPassword>', $config.acrPassword
-$cloudInitContent = $cloudInitContent -replace '<imageName>', $config.imageName
-$cloudInitContent = $cloudInitContent -replace '<imageTag>', $config.tag
+# Base64 encode the processed service content for safe transport
+$base64ServiceContent = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($serviceContent))
 
-Set-Content -Path $cloudInitTempPath -Value $cloudInitContent
+# Define the command for the Custom Script Extension
+# Decodes the service file, writes it, reloads systemd, enables, checks docker, & starts service
+$commandToExecute = "echo '${base64ServiceContent}' | base64 --decode | sudo tee /etc/systemd/system/7dtd.service > /dev/null && sudo systemctl daemon-reload && sudo systemctl enable 7dtd.service && sudo systemctl is-active --quiet docker.service && sudo systemctl start 7dtd.service"
 
-# Deploy Bicep template for VM
+# Read the simplified cloud-init template
+if (-not (Test-Path $cloudInitTemplatePath)) {
+    Write-Error "Cloud-init template not found at $cloudInitTemplatePath"
+    exit 1
+}
+$cloudInitRaw = Get-Content $cloudInitTemplatePath -Raw
+$cloudInitBase64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($cloudInitRaw))
+
+# --- Deploy Bicep template ---
 Write-Host "Starting Bicep deployment to Resource Group '$($config.resourceGroup)'..."
 
-$templateFilePath = 'azure/deploy.bicep'
-if (-not (Test-Path $templateFilePath)) {
-    Write-Error "Bicep template file not found at expected location: $templateFilePath (relative to repo root)"
+if (-not (Test-Path $bicepTemplatePath)) {
+    Write-Error "Bicep template file not found at expected location: $bicepTemplatePath"
     exit 1
 }
 
+# Prepare parameters for Bicep deployment (including the new command)
 $deployParams = @{
-    ResourceGroupName = $config.resourceGroup
-    TemplateFile = $templateFilePath
-    location = $config.location
-    vmName = $config.vmName
-    adminUsername = $config.adminUsername
-    adminPassword = $secureAdminPassword
-    Mode = $DeploymentMode
+    ResourceGroupName    = $config.resourceGroup
+    TemplateFile         = $bicepTemplatePath
+    location             = $config.location # Use potentially updated location
+    vmName               = $config.vmName
+    adminUsername        = $config.adminUsername
+    adminPassword        = $secureAdminPassword
+    customDataBase64     = $cloudInitBase64
+    customScriptCommand  = $commandToExecute # Pass the command
+    Mode                 = $DeploymentMode
 }
 
-# Patch Bicep to use the temp cloud-init file
-# We'll copy the temp file to the same relative path Bicep expects
-$expectedCloudInitPath = Join-Path $repoRoot 'deployment/cloud-init.txt'
-Copy-Item -Path $cloudInitTempPath -Destination $expectedCloudInitPath -Force
-
 Write-Host "Deployment Parameters:"
-$deployParams.GetEnumerator() | ForEach-Object { 
+$deployParams.GetEnumerator() | ForEach-Object {
     if ($_.Name -ne 'adminPassword') {
-        Write-Host "  $($_.Name): $($_.Value)" 
+        Write-Host "  $($_.Name): $($_.Value)"
     } else {
         Write-Host "  $($_.Name): [secure]"
     }
 }
 
 try {
+    # Validate the deployment first
+    Write-Host "Validating Bicep deployment..."
+    # Pass parameters individually to Test-AzResourceGroupDeployment
+    Test-AzResourceGroupDeployment -ResourceGroupName $config.resourceGroup `
+        -TemplateFile $bicepTemplatePath `
+        -location $config.location `
+        -vmName $config.vmName `
+        -adminUsername $config.adminUsername `
+        -adminPassword $secureAdminPassword `
+        -customDataBase64 $cloudInitBase64 `
+        -customScriptCommand $commandToExecute `
+        -Mode $DeploymentMode `
+        -ErrorAction Stop
+    Write-Host "Validation successful. Proceeding with deployment..."
+
+    # Ensure Bicep uses the base64-encoded cloud-init content and the command
     New-AzResourceGroupDeployment @deployParams -Verbose -ErrorAction Stop
     Write-Host "Bicep deployment completed successfully."
 } catch {
     Write-Error "Bicep deployment failed. Error: $_"
     exit 1
+} finally {
+    Write-Host "Deployment script finished."
 }
-
-# Clean up temp file
-Remove-Item $cloudInitTempPath -ErrorAction SilentlyContinue
-
-Write-Host "Deployment script finished."
