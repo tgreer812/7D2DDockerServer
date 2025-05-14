@@ -32,7 +32,11 @@ echo "SteamCMD update check finished. Check $STEAMCMD_LOG_FILE for details."
 # but allows it to be persisted and potentially modified later via the file share
 # if the container restarts without a redeploy.
 echo "Copying serverconfig.xml from image ($CONFIG_SOURCE_PATH) to persistent volume ($CONFIG_DEST_PATH)..."
-cp "$CONFIG_SOURCE_PATH" "$CONFIG_DEST_PATH"
+if [ ! -f "$CONFIG_DEST_PATH" ]; then
+    cp "$CONFIG_SOURCE_PATH" "$CONFIG_DEST_PATH"
+else
+    echo "Config file already exists at $CONFIG_DEST_PATH, not overwriting."
+fi
 
 # Start the server using the config file from the persistent volume
 echo "Starting 7 Days to Die server..."
@@ -52,8 +56,7 @@ export LD_LIBRARY_PATH="$STEAMCMD_DIR/linux64:$LD_LIBRARY_PATH"
 # -logfile: Specifies the log file path.
 # -quit, -batchmode, -nographics: Standard dedicated server flags.
 # -configfile: Points to the config on the persistent volume.
-# -UserDataPath: Directory for user-specific data (profiles, permissions). Point to persistent volume.
-# -SaveGameFolder: Directory for world save games. Point to persistent volume.
+# NOTE: The directory in which the world is saved is specified in the server config file - not a command line arg!!
 exec "$SERVER_EXEC" \
     -logfile "$SERVER_LOG_FILE" \
     -quit \

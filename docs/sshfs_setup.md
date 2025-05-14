@@ -7,7 +7,7 @@ SSHFS (SSH File System) allows you to mount a directory from a remote server (li
 1.  **SSH Access:** You must be able to SSH into your Azure VM.
 2.  **SSHFS Client (Windows):** You need to install an SSHFS client on your Windows machine.
     *   **Recommended:** `sshfs-win`
-        *   Download the latest `.msi` installer from the [sshfs-win GitHub Releases page](https://github.com/sshfs-win/sshfs-win/releases).
+        *   Download the latest `.msi` installer from the [sshfs-win GitHub Releases page](https://github.com/winfsp/sshfs-win/releases).
         *   You might also need to install the companion `WinFsp` (Windows File System Proxy) if the installer doesn't include it. Download it from the [WinFsp Releases page](https://github.com/winfsp/winfsp/releases).
         *   Install both, following their setup instructions.
 

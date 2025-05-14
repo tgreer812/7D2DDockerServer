@@ -5,6 +5,7 @@ param adminUsername string
 param adminPassword string
 param customDataBase64 string
 param customScriptCommand string // New parameter for the command
+param forceUpdateTag string // Add this parameter
 
 var nsgName = '${vmName}-nsg'
 var vnetName = '${vmName}-vnet'
@@ -129,7 +130,7 @@ resource nic 'Microsoft.Network/networkInterfaces@2023-05-01' = {
   dependsOn: [ vnet ]
 }
 
-resource vm 'Microsoft.Compute/virtualMachines@2023-07-01' = {
+resource vm 'Microsoft.Compute/virtualMachines@2024-03-01' = {
   name: vmName
   location: location
   properties: {
@@ -145,17 +146,20 @@ resource vm 'Microsoft.Compute/virtualMachines@2023-07-01' = {
       osDisk: { 
         createOption: osDiskCreateOption
         // Consider adding disk size if default is too small
-        // diskSizeGB: 128 
+        diskSizeGB: 64 
       }
     }
     networkProfile: { networkInterfaces: [ { id: nic.id } ] }
   }
 }
 
-resource vmCustomScriptExtension 'Microsoft.Compute/virtualMachines/extensions@2023-07-01' = {
-  parent: vm // Associate with the VM
-  name: 'install7dtdService'
+resource customScriptExtension 'Microsoft.Compute/virtualMachines/extensions@2024-03-01' = {
+  name: 'CustomScript'
+  parent: vm
   location: location
+  tags: {
+    forceUpdate: forceUpdateTag
+  }
   properties: {
     publisher: 'Microsoft.Azure.Extensions'
     type: 'CustomScript'

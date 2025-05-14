@@ -34,9 +34,14 @@ RUN if [ ! -f /7dtd/serverconfig.xml ]; then \
     cp /7dtd/serverconfig.default.xml /7dtd/serverconfig.xml; \
     fi
 
-COPY ./scripts/start-server.sh /start-server.sh
-RUN chmod +x /start-server.sh
+# Copy Scripts
+COPY scripts/ /app/scripts/
+RUN chmod +x /app/scripts/*.sh
 
-EXPOSE 26900/udp 26900/tcp 26901/udp 26902/udp 26903/udp
+# Set Working Directory
+WORKDIR /app
 
-CMD ["/start-server.sh"]
+EXPOSE 26900/udp 26900/tcp 26901/udp 26902/udp 26903/udp 8080/tcp 8081/tcp
+
+# Define Entrypoint
+ENTRYPOINT ["/app/scripts/start-server.sh"]

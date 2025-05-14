@@ -64,6 +64,9 @@ if (-not (Test-Path $ConfigPath)) {
 }
 $config = Get-Content $ConfigPath | ConvertFrom-Json
 
+# Generate a unique tag for forcing script updates
+$forceUpdateTag = Get-Date -Format "yyyyMMddHHmmss"
+
 # --- Validate Configuration ---
 # Required keys for VM deployment (removed containerName)
 $requiredKeys = @('acrName', 'acrLoginServer', 'imageName', 'tag', 'resourceGroup', 'location', 'vmName', 'adminUsername', 'adminPassword', 'acrPassword')
@@ -140,7 +143,7 @@ if (-not (Test-Path $bicepTemplatePath)) {
     exit 1
 }
 
-# Prepare parameters for Bicep deployment (including the new command)
+# Prepare parameters for Bicep deployment (including the new command and forceUpdateTag)
 $deployParams = @{
     ResourceGroupName    = $config.resourceGroup
     TemplateFile         = $bicepTemplatePath
@@ -150,6 +153,7 @@ $deployParams = @{
     adminPassword        = $secureAdminPassword
     customDataBase64     = $cloudInitBase64
     customScriptCommand  = $commandToExecute # Pass the command
+    forceUpdateTag       = $forceUpdateTag   # Pass the timestamp
     Mode                 = $DeploymentMode
 }
 
@@ -174,6 +178,7 @@ try {
         -adminPassword $secureAdminPassword `
         -customDataBase64 $cloudInitBase64 `
         -customScriptCommand $commandToExecute `
+        -forceUpdateTag $forceUpdateTag `
         -Mode $DeploymentMode `
         -ErrorAction Stop
     Write-Host "Validation successful. Proceeding with deployment..."
